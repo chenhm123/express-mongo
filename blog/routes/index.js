@@ -128,9 +128,9 @@ module.exports = function(app){
 			}
 		},
 		{
-			url:'/u/:name/:day/:title',
+			url:'/p/:_id',
 			callback:function(req,res){
-				Post.getOne(req.params.name,req.params.day,req.params.title,function(err,post){
+				Post.getOne(req.params._id,function(err,post){
 					if(err){
 						req.flash('error','err');
 						return res.redirect('/')
@@ -238,6 +238,61 @@ module.exports = function(app){
 					})
 				})
 			}
+		},
+		{
+			url:'/search',
+			callback:function(req,res){
+				Post.search(req.query.keyword,function(err,docs){
+					if(err){
+						req.flash('error',err);
+						return res.redirect('/');
+					}
+					res.render('search',{
+						title:"Search:"+req.query.keyword,
+						posts:docs,
+						user:req.session.user,
+						success:req.flash('success').toString(),
+						error:req.flash('error').toString()
+					})
+				})
+			}
+		},
+		{
+			url:'/links',
+			callback:function(req,res){
+				res.render('links',{
+					title:'友情链接',
+					user:req.session.user
+				})
+			}
+		},
+		{
+			url:'/reprint/:name/:day/:title',
+			callback:checkLogin
+		},
+		{
+			url:'/reprint/:name/:day/:title',
+			callback:function(req,res){
+				Post.edit(req.params.name,req.params.day,req.params.title,function(err,post){
+					if(err){
+						req.flash('error',err);
+						return res.redirect('back');
+					}
+					var currentUser = req.session.user,
+						reprint_from = {name:post.name,day:post.time.day,title:post.title},
+						reprint_to = {name:currentUser.name,head:currentUser.head};
+					Post.reprint(reprint_from,reprint_to,function(err,post){
+						if(err){
+							req.flash('error',err);
+							return res.redirect('back');
+						}
+						req.flash('success',"success");
+						var url = encodeURI('/u/' + post.name + '/' + post.time.day + '/' + post.title);
+						//跳转到转载后的文章页面
+						res.redirect(url);
+					})
+				})
+			}
 		}
 	]
 	var postReq = [
@@ -328,7 +383,7 @@ module.exports = function(app){
 			callback:function(req,res){
                 var currentUser = req.session.user,
 					tags = [req.body.tag1,req.body.tag2,req.body.tag3],
-                    post = new Post(currentUser.name,req.body.title,tags,req.body.post);
+                    post = new Post(currentUser.name,currentUser.head,req.body.title,tags,req.body.post);
                 post.save(function(err){
                     if(err){
                         req.flash('error',err);
@@ -363,12 +418,17 @@ module.exports = function(app){
 				var date = new Date(),
 					time = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " +
 						date.getHours() + ":" + (date.getMinutes() < 10 ? '0' + date.getMinutes() : date.getMinutes());
+				var md5 = crypto.createHash('md5'),
+					email_MD5 = md5.update(req.body.email.toLowerCase()).digest('hex'),
+					head = "http://www.gravatar.com/avator/"+email_MD5+"?s=48";
+
 				var comment = {
 					name:req.body.name,
 					email:req.body.email,
 					website:req.body.website,
 					time:time,
-					content:req.body.content
+					content:req.body.content,
+					head:head
 				}
 				var newComment = new Comment(req.params.name,req.params.day,req.params.title,comment);
 				newComment.save(function(err){
@@ -390,9 +450,11 @@ module.exports = function(app){
 	postReq.forEach(function(option){
 		app.post(option.url,option.callback)
 	})
+	app.use(function(req,res){
+		res.render("404");
+	})
 
 }
-
 function checkLogin(req,res,next){
     if(!req.session.user){
         req.flash('error','未登录!');
